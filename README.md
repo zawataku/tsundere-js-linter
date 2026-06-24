@@ -150,27 +150,6 @@ npm test
 💝 べ、別に全部パスして嬉しいわけじゃないんだからね！
 ```
 
-## 📁 Project Structure
-
-```
-tsundere-js-linter/
-├── src/
-│   ├── index.js         ← パッケージエントリポイント
-│   ├── linter.js        ← コアエンジン: AST解析 + パーソナリティ適用
-│   ├── rules.js         ← 10個のlintルール
-│   ├── personality.js   ← ツンデレメッセージエンジン
-│   ├── formatter.js     ← 出力フォーマッタ（ターミナル / JSON）
-│   └── cli.js           ← CLIエントリポイント
-├── tests/
-│   └── linter.test.js   ← 33テスト
-├── examples/
-│   ├── bad_code.js      ← わざとダメなコード（デモ用）
-│   └── good_code.js     ← きれいなコード（しぶしぶ褒められる）
-├── package.json
-├── LICENSE
-└── README.md
-```
-
 ## 📜 License
 
 MIT License — べ、別にあんたに自由に使ってほしいわけじゃないんだからね！
