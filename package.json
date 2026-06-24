@@ -1,0 +1,26 @@
+{
+  "name": "tsundere-js-linter",
+  "version": "1.0.0",
+  "description": "A JavaScript linter that reviews your code with tsundere attitude",
+  "main": "src/index.js",
+  "bin": {
+    "tsundere-lint-js": "src/cli.js"
+  },
+  "scripts": {
+    "lint": "node src/cli.js examples/",
+    "test": "node --test tests/linter.test.js"
+  },
+  "keywords": [
+    "linter",
+    "tsundere",
+    "code-review",
+    "javascript",
+    "static-analysis"
+  ],
+  "author": "zawataku",
+  "license": "MIT",
+  "dependencies": {
+    "acorn": "^8.14.0",
+    "acorn-walk": "^8.3.0"
+  }
+}
