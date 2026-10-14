@@ -192,6 +192,58 @@ describe("syntax errors", () => {
   });
 });
 
+describe("bug fixes", () => {
+  it("should respect maxLineLength option", () => {
+    const source = `const x = "${"a".repeat(90)}";\n`;
+    assert.ok(!rulesOf(lintCode(source)).includes("T002"));
+    const issues = lintSource(source, "test.js", { maxLineLength: 80 });
+    assert.ok(rulesOf(issues).includes("T002"));
+  });
+
+  it("should fill tsundere text for syntax errors", () => {
+    const [issue] = lintCode(`function foo(\n`);
+    assert.ok(issue.tsundere.includes("SyntaxError"));
+  });
+
+  it("should fill tsundere text for missing files", () => {
+    const [issue] = lintFile("non_existent_file.js");
+    assert.ok(issue.tsundere.includes("non_existent_file.js"));
+  });
+
+  it("should detect TODO in block comments", () => {
+    const issues = lintCode(`/*\n * TODO: later\n */\nconst x = 1;\n`);
+    const todo = issues.find((i) => i.rule === "T004");
+    assert.ok(todo);
+    assert.strictEqual(todo.line, 2);
+  });
+
+  it("should not detect TODO inside strings", () => {
+    const issues = lintCode(`const url = "http://example.com/// TODO";\n`);
+    assert.ok(!rulesOf(issues).includes("T004"));
+  });
+
+  it("should not treat a distant JSDoc as the function's JSDoc", () => {
+    const source = `/** Unrelated. */\nconst a = 1;\n/* plain */\nfunction hello() {\n  return a;\n}\n`;
+    assert.ok(rulesOf(lintCode(source)).includes("T003"));
+  });
+
+  it("should accept JSDoc before export", () => {
+    const source = `/** Say hello. */\nexport function hello() {\n  return 1;\n}\n`;
+    assert.ok(!rulesOf(lintCode(source)).includes("T003"));
+  });
+
+  it("should allow null == x comparison", () => {
+    assert.ok(!rulesOf(lintCode(`if (null == x) {}\n`)).includes("T006"));
+  });
+
+  it("should report the actual column", () => {
+    const issue = lintCode(`const y = 1;\nif (y == 2) {}\n`).find(
+      (i) => i.rule === "T006"
+    );
+    assert.strictEqual(issue.col, 4);
+  });
+});
+
 describe("clean code", () => {
   it("should have no errors for clean code", () => {
     const source = `/** Add numbers. */\nfunction add(a, b) {\n  return a + b;\n}\n`;

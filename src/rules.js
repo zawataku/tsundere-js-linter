@@ -86,25 +86,21 @@ function checkLineLength(sourceLines, filepath, maxLen = 120) {
   return issues;
 }
 
-function checkMissingJSDoc(ast, source, filepath) {
+function checkMissingJSDoc(ast, source, comments, filepath) {
   const issues = [];
-  const sourceLines = source.split("\n");
 
+  // 直前のコメントが /** */ で、間に空白か export しかなければJSDocありとみなす
   function hasJSDocBefore(node) {
-    const lineAbove = node.loc.start.line - 2;
-    if (lineAbove < 0) return false;
-    for (let i = lineAbove; i >= 0; i--) {
-      const trimmed = sourceLines[i].trim();
-      if (trimmed === "") continue;
-      if (trimmed.endsWith("*/")) {
-        for (let j = i; j >= 0; j--) {
-          if (sourceLines[j].trim().startsWith("/**")) return true;
-        }
-        return false;
-      }
+    let prev = null;
+    for (const comment of comments) {
+      if (comment.end > node.start) break;
+      prev = comment;
+    }
+    if (!prev || prev.type !== "Block" || !prev.value.startsWith("*")) {
       return false;
     }
-    return false;
+    const between = source.slice(prev.end, node.start).trim();
+    return between === "" || /^export(\s+default)?$/.test(between);
   }
 
   walk.simple(ast, {
@@ -113,7 +109,7 @@ function checkMissingJSDoc(ast, source, filepath) {
         issues.push({
           filepath,
           line: node.loc.start.line,
-          col: 0,
+          col: node.loc.start.column,
           severity: "info",
           rule: "T003",
           message: MESSAGES.T003_func(node.id.name),
@@ -125,7 +121,7 @@ function checkMissingJSDoc(ast, source, filepath) {
         issues.push({
           filepath,
           line: node.loc.start.line,
-          col: 0,
+          col: node.loc.start.column,
           severity: "info",
           rule: "T003",
           message: MESSAGES.T003_class(node.id.name),
@@ -137,16 +133,19 @@ function checkMissingJSDoc(ast, source, filepath) {
   return issues;
 }
 
-function checkTodoFixme(sourceLines, filepath) {
+function checkTodoFixme(comments, filepath) {
   const issues = [];
-  const pattern = /\/\/\s*(TODO|FIXME|HACK|XXX)\b/i;
-  for (let i = 0; i < sourceLines.length; i++) {
-    const match = sourceLines[i].match(pattern);
-    if (match) {
+  // コメント各行の先頭（ブロックコメントの " * " は除く）にあるタグだけを拾う
+  const pattern = /^[\s*]*(TODO|FIXME|HACK|XXX)\b/i;
+  for (const comment of comments) {
+    const lines = comment.value.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(pattern);
+      if (!match) continue;
       issues.push({
         filepath,
-        line: i + 1,
-        col: match.index,
+        line: comment.loc.start.line + i,
+        col: i === 0 ? comment.loc.start.column : 0,
         severity: "warning",
         rule: "T004",
         message: MESSAGES.T004(match[1].toUpperCase()),
@@ -166,7 +165,7 @@ function checkEmptyCatch(ast, filepath) {
           issues.push({
             filepath,
             line: node.handler.loc.start.line,
-            col: 0,
+            col: node.handler.loc.start.column,
             severity: "error",
             rule: "T005",
             message: MESSAGES.T005,
@@ -183,10 +182,8 @@ function checkLooseEquality(ast, filepath) {
   walk.simple(ast, {
     BinaryExpression(node) {
       if (node.operator === "==" || node.operator === "!=") {
-        if (
-          node.right.type === "Literal" &&
-          node.right.value === null
-        ) {
+        const isNull = (n) => n.type === "Literal" && n.value === null;
+        if (isNull(node.left) || isNull(node.right)) {
           return;
         }
         const msg =
@@ -219,7 +216,7 @@ function checkConsoleLog(ast, filepath) {
         issues.push({
           filepath,
           line: node.loc.start.line,
-          col: 0,
+          col: node.loc.start.column,
           severity: "info",
           rule: "T007",
           message: MESSAGES.T007,
@@ -245,7 +242,7 @@ function checkMagicNumbers(ast, filepath) {
             issues.push({
               filepath,
               line: node.loc.start.line,
-              col: 0,
+              col: node.loc.start.column,
               severity: "info",
               rule: "T008",
               message: MESSAGES.T008(side.value),
@@ -263,7 +260,7 @@ function checkMagicNumbers(ast, filepath) {
             issues.push({
               filepath,
               line: node.loc.start.line,
-              col: 0,
+              col: node.loc.start.column,
               severity: "info",
               rule: "T008",
               message: MESSAGES.T008(val),
@@ -286,7 +283,7 @@ function checkLongFunctions(ast, filepath, maxLines = 50) {
       issues.push({
         filepath,
         line: node.loc.start.line,
-        col: 0,
+        col: node.loc.start.column,
         severity: "warning",
         rule: "T009",
         message: MESSAGES.T009(name, length),
@@ -334,7 +331,7 @@ function checkNestingDepth(ast, filepath, maxDepth = 4) {
         issues.push({
           filepath,
           line: node.loc.start.line,
-          col: 0,
+          col: node.loc.start.column,
           severity: "warning",
           rule: "T010",
           message: MESSAGES.T010(depth),

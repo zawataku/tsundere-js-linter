@@ -31,7 +31,14 @@ function parseArgs(argv) {
       args.json = true;
     } else if (arg === "--max-line-length") {
       i++;
-      args.maxLineLength = parseInt(argv[i], 10);
+      const value = Number(argv[i]);
+      if (!Number.isInteger(value) || value <= 0) {
+        console.error(
+          `💢 --max-line-length には正の整数を指定しなさいよ！ ('${argv[i]}' って何？)`
+        );
+        process.exit(2);
+      }
+      args.maxLineLength = value;
     } else if (arg === "--no-banner") {
       args.noBanner = true;
     } else if (arg === "--version" || arg === "-v") {
@@ -80,12 +87,13 @@ function main() {
   }
 
   const target = args.path;
+  const options = { maxLineLength: args.maxLineLength };
   let issues;
 
   if (fs.existsSync(target) && fs.statSync(target).isFile()) {
-    issues = lintFile(target);
+    issues = lintFile(target, options);
   } else if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-    issues = lintDirectory(target);
+    issues = lintDirectory(target, options);
   } else {
     console.error(
       `💢 '${target}' が見つからないわ！パスを確認しなさい！`

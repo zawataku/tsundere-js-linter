@@ -14,17 +14,30 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-function lintSource(source, filepath) {
+function withTsundere(issues) {
+  for (const issue of issues) {
+    issue.tsundere = personality.formatIssue(
+      issue.severity,
+      issue.rule,
+      issue.message
+    );
+  }
+  return issues;
+}
+
+function lintSource(source, filepath, options = {}) {
   const sourceLines = source.split("\n");
+  const comments = [];
   let ast;
   try {
     ast = acorn.parse(source, {
       ecmaVersion: "latest",
       sourceType: "module",
       locations: true,
+      onComment: comments,
     });
   } catch (e) {
-    return [
+    return withTsundere([
       {
         filepath,
         line: e.loc ? e.loc.line : 0,
@@ -32,16 +45,15 @@ function lintSource(source, filepath) {
         severity: "error",
         rule: "T000",
         message: `SyntaxErrorって…コード動かしてみたことないの!? → ${e.message}`,
-        tsundere: "",
       },
-    ];
+    ]);
   }
 
   const issues = [
     ...rules.checkUnusedImports(ast, sourceLines, filepath),
-    ...rules.checkLineLength(sourceLines, filepath),
-    ...rules.checkMissingJSDoc(ast, source, filepath),
-    ...rules.checkTodoFixme(sourceLines, filepath),
+    ...rules.checkLineLength(sourceLines, filepath, options.maxLineLength),
+    ...rules.checkMissingJSDoc(ast, source, comments, filepath),
+    ...rules.checkTodoFixme(comments, filepath),
     ...rules.checkEmptyCatch(ast, filepath),
     ...rules.checkLooseEquality(ast, filepath),
     ...rules.checkConsoleLog(ast, filepath),
@@ -50,23 +62,15 @@ function lintSource(source, filepath) {
     ...rules.checkNestingDepth(ast, filepath),
   ];
 
-  issues.sort((a, b) => a.line - b.line);
+  issues.sort((a, b) => a.line - b.line || a.col - b.col);
 
-  for (const issue of issues) {
-    issue.tsundere = personality.formatIssue(
-      issue.severity,
-      issue.rule,
-      issue.message
-    );
-  }
-
-  return issues;
+  return withTsundere(issues);
 }
 
-function lintFile(filepath) {
+function lintFile(filepath, options = {}) {
   const resolved = path.resolve(filepath);
   if (!fs.existsSync(resolved)) {
-    return [
+    return withTsundere([
       {
         filepath,
         line: 0,
@@ -74,18 +78,17 @@ function lintFile(filepath) {
         severity: "error",
         rule: "T000",
         message: `ファイル '${filepath}' が見つからないんだけど？ちゃんとパス確認しなさいよ！`,
-        tsundere: "",
       },
-    ];
+    ]);
   }
 
   if (path.extname(resolved) !== ".js") return [];
 
   const source = fs.readFileSync(resolved, "utf-8");
-  return lintSource(source, filepath);
+  return lintSource(source, filepath, options);
 }
 
-function lintDirectory(dirpath, recursive = true) {
+function lintDirectory(dirpath, options = {}, recursive = true) {
   const allIssues = [];
   const resolved = path.resolve(dirpath);
 
@@ -100,7 +103,7 @@ function lintDirectory(dirpath, recursive = true) {
         walkDir(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".js")) {
         const relPath = path.relative(process.cwd(), fullPath);
-        allIssues.push(...lintFile(relPath));
+        allIssues.push(...lintFile(relPath, options));
       }
     }
   }
