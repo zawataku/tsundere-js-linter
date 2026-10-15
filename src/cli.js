@@ -20,6 +20,7 @@ function parseArgs(argv) {
     json: false,
     maxLineLength: null,
     config: null,
+    fix: false,
     noBanner: false,
     version: false,
     help: false,
@@ -43,6 +44,8 @@ function parseArgs(argv) {
     } else if (arg === "--config" || arg === "-c") {
       i++;
       args.config = argv[i];
+    } else if (arg === "--fix") {
+      args.fix = true;
     } else if (arg === "--no-banner") {
       args.noBanner = true;
     } else if (arg === "--version" || arg === "-v") {
@@ -68,6 +71,7 @@ function showHelp() {
   --json, -j                   JSON形式で出力
   --config, -c <path>          設定ファイルを指定（デフォルト: .tsundererc.json を探す）
   --max-line-length <number>   最大行長（設定ファイルより優先）
+  --fix                        直せる指摘を自動修正してファイルを書き換える
   --no-banner                  バナーを非表示
   --version, -v                バージョン表示
   --help, -h                   ヘルプ表示
@@ -104,12 +108,13 @@ function main() {
   }
 
   const target = args.path;
+  const options = { fix: args.fix };
   let results;
 
   if (fs.existsSync(target) && fs.statSync(target).isFile()) {
-    results = [lintFile(target, config)];
+    results = [lintFile(target, config, options)];
   } else if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-    results = lintDirectory(target, config);
+    results = lintDirectory(target, config, options);
   } else {
     console.error(
       `💢 '${target}' が見つからないわ！パスを確認しなさい！`

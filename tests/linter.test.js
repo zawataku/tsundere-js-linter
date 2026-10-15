@@ -1,5 +1,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { lintSource, lintFile, lintDirectory } = require("../src/linter");
 const { formatTerminal, formatJSON } = require("../src/formatter");
@@ -410,6 +412,89 @@ describe("T017: too many params", () => {
   it("should respect max option", () => {
     const issues = lintCode(`const f = (a, b, c) => a;\n`, { rules: { T017: { max: 2 } } });
     assert.ok(rulesOf(issues).includes("T017"));
+  });
+});
+
+describe("T018: trailing spaces", () => {
+  it("should detect trailing spaces", () => {
+    const issues = lintCode(`const x = 1;  \nconst y = 2;\t\r\n`);
+    assert.strictEqual(issues.filter((i) => i.rule === "T018").length, 2);
+  });
+
+  it("should ignore whitespace inside template literals", () => {
+    const issues = lintCode("const s = `a  \nb`;\n");
+    assert.ok(!rulesOf(issues).includes("T018"));
+  });
+});
+
+describe("--fix", () => {
+  function fix(source, config) {
+    return lintSource(source, "test.js", config, { fix: true });
+  }
+
+  it("should fix typeof comparisons", () => {
+    const result = fix(`if (typeof x == "string") {}\nif ("a" != typeof y) {}\n`);
+    assert.strictEqual(
+      result.output,
+      `if (typeof x === "string") {}\nif ("a" !== typeof y) {}\n`
+    );
+    assert.strictEqual(result.fixed, 2);
+    assert.ok(!rulesOf(result.issues).includes("T006"));
+  });
+
+  it("should fix the operator even with parentheses and comments", () => {
+    const result = fix(`if ((typeof x) /* == */ == ("a")) {}\n`);
+    assert.strictEqual(result.output, `if ((typeof x) /* == */ === ("a")) {}\n`);
+  });
+
+  it("should not fix comparisons whose meaning would change", () => {
+    const source = `if (x == 1) {}\n`;
+    const result = fix(source);
+    assert.strictEqual(result.output, source);
+    assert.ok(rulesOf(result.issues).includes("T006"));
+  });
+
+  it("should remove debugger lines", () => {
+    const result = fix(`function f() {\n  debugger;\n  return 1;\n}\nf();\n`);
+    assert.strictEqual(result.output, `function f() {\n  return 1;\n}\nf();\n`);
+  });
+
+  it("should not remove debugger used as an if body", () => {
+    const source = `if (x) debugger;\n`;
+    assert.strictEqual(fix(source).output, source);
+  });
+
+  it("should remove trailing spaces but keep CRLF", () => {
+    const result = fix(`const x = 1;  \r\nconst y = 2;\r\n`);
+    assert.strictEqual(result.output, `const x = 1;\r\nconst y = 2;\r\n`);
+  });
+
+  it("should not fix suppressed or disabled issues", () => {
+    const source = `debugger; // tsundere-disable-line\nconst x = 1;  \n`;
+    const result = fix(source, { rules: { T018: "off" } });
+    assert.strictEqual(result.output, source);
+  });
+
+  it("should apply fixes from multiple rules in one run", () => {
+    const result = fix(`debugger;\nif (typeof x == "string") {}   \n`);
+    assert.strictEqual(result.output, `if (typeof x === "string") {}\n`);
+  });
+
+  it("should write fixed files and mark fixable issues", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tsundere-fix-"));
+    const file = path.join(dir, "a.js");
+    try {
+      fs.writeFileSync(file, `const x = 1;  \n`);
+      const result = lintFile(file, {}, { fix: true });
+      assert.strictEqual(fs.readFileSync(file, "utf-8"), `const x = 1;\n`);
+      assert.strictEqual(result.fixed, 1);
+
+      fs.writeFileSync(file, `const x = 1;  \n`);
+      const data = JSON.parse(formatJSON([lintFile(file)]));
+      assert.ok(data.find((i) => i.rule === "T018").fixable);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

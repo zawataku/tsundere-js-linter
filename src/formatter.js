@@ -28,13 +28,26 @@ function allIssues(results) {
   return results.flatMap((r) => r.issues);
 }
 
-// 指摘以外のひとこと（無効化コメントへの反応など）
+function sum(results, count) {
+  return results.reduce((n, r) => n + count(r), 0);
+}
+
+// 指摘以外のひとこと（自動修正・無効化コメントへの反応など）
 function footerLines(results) {
   const lines = [];
-  const suppressed = results.reduce(
-    (n, r) => n + (r.suppressed ? r.suppressed.length : 0),
-    0
-  );
+  const fixed = sum(results, (r) => r.fixed || 0);
+  if (fixed > 0) {
+    lines.push(
+      `   ${Colors.GREEN}🔧 ${personality.getFixReaction(fixed)}${Colors.RESET}`
+    );
+  }
+  const fixable = sum(results, (r) => r.issues.filter((i) => i.fix).length);
+  if (fixable > 0) {
+    lines.push(
+      `   ${Colors.DIM}🔧 ${personality.getFixableHint(fixable)}${Colors.RESET}`
+    );
+  }
+  const suppressed = sum(results, (r) => (r.suppressed ? r.suppressed.length : 0));
   if (suppressed > 0) {
     lines.push(
       `   ${Colors.DIM}🙈 ${personality.getSuppressedReaction(suppressed)}${Colors.RESET}`
@@ -65,10 +78,11 @@ function formatTerminal(results) {
       const color = SEVERITY_COLORS[issue.severity] || Colors.RESET;
       const emoji = SEVERITY_EMOJI[issue.severity] || "";
       const lineNum = `L${issue.line}`.padEnd(5);
+      const fixMark = issue.fix ? ` ${Colors.GREEN}🔧${Colors.RESET}` : "";
 
       lines.push(
         `  ${Colors.DIM}${lineNum}${Colors.RESET} ` +
-          `${color}${Colors.BOLD}[${issue.rule}]${Colors.RESET} ` +
+          `${color}${Colors.BOLD}[${issue.rule}]${Colors.RESET}${fixMark} ` +
           `${emoji} ${issue.tsundere}`
       );
     }
@@ -103,6 +117,7 @@ function formatJSON(results) {
       rule: i.rule,
       message: i.message,
       tsundere: i.tsundere,
+      fixable: Boolean(i.fix),
     })),
     null,
     2

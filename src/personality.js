@@ -68,6 +68,17 @@ const SUPPRESSED = [
   "{count}個は黙らせたのね…べ、別に寂しくなんかないんだから！",
 ];
 
+const FIXED = [
+  "し、仕方ないから{count}個直しておいてあげたわよ。…感謝しなさいよね！",
+  "{count}個直しといたから。べ、別にあんたのためにやったんじゃないんだからね！",
+  "はぁ…{count}個も直させるなんて。次は自分でやりなさいよ！",
+];
+
+const FIXABLE_HINT = [
+  "…そのうち{count}個は --fix で直せるんだけど。自分でやる？あたしがやってあげてもいいけど？",
+  "{count}個は --fix で直せるわよ。…べ、別に手伝いたいわけじゃないけど！",
+];
+
 function randomChoice(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -93,9 +104,21 @@ function getSuppressedReaction(count) {
   return randomChoice(SUPPRESSED).replace("{count}", count);
 }
 
+/** 自動修正した数へのひとこと */
+function getFixReaction(count) {
+  return randomChoice(FIXED).replace("{count}", count);
+}
+
+/** 自動修正できる指摘が残っているときのひとこと */
+function getFixableHint(count) {
+  return randomChoice(FIXABLE_HINT).replace("{count}", count);
+}
+
 module.exports = {
   formatIssue,
   getPraise,
   getSummary,
   getSuppressedReaction,
+  getFixReaction,
+  getFixableHint,
 };

@@ -6,8 +6,10 @@
  *   name            設定ファイルや無効化コメントでも使える名前
  *   description     READMEやヘルプ用の短い説明
  *   severity        デフォルトの重要度 ("error" | "warning" | "info")
+ *   fixable         --fix で自動修正できるなら true
  *   defaultOptions  ルール固有オプションのデフォルト値
  *   check(context)  context.report({ node | loc, message, fix? }) で指摘する
+ *                   fix は { range: [start, end], text }（安全に直せるときだけ付ける）
  */
 const rules = [
   require("./t001-unused-imports"),
@@ -27,6 +29,7 @@ const rules = [
   require("./t015-unreachable-code"),
   require("./t016-async-without-await"),
   require("./t017-too-many-params"),
+  require("./t018-trailing-spaces"),
 ];
 
 const byKey = new Map();

@@ -5,6 +5,7 @@ const { parse, walk, base } = require("./ast");
 const { rules } = require("./rules");
 const { createIgnoreMatcher } = require("./config");
 const { parseDirectives, applyDirectives } = require("./directives");
+const { applyFixes } = require("./fixer");
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -89,11 +90,29 @@ function runRule(rule, settings, shared) {
   return issues;
 }
 
+const MAX_FIX_PASSES = 10;
+
 /**
- * ソース文字列をlintする。
- * @returns {{ filepath: string, issues: object[] }}
+ * ソース文字列をlintする。options.fix が true なら自動修正を繰り返し適用し、
+ * 修正後のソースを output、適用した数を fixed に入れて返す。
+ * @returns {{ filepath: string, issues: object[], suppressed: object[], fixed?: number, output?: string }}
  */
-function lintSource(source, filepath, config = {}) {
+function lintSource(source, filepath, config = {}, options = {}) {
+  if (!options.fix) return lintOnce(source, filepath, config);
+
+  let output = source;
+  let fixed = 0;
+  for (let pass = 0; pass < MAX_FIX_PASSES; pass++) {
+    const result = lintOnce(output, filepath, config);
+    const fixResult = applyFixes(output, result.issues);
+    if (fixResult.applied === 0) break;
+    output = fixResult.output;
+    fixed += fixResult.applied;
+  }
+  return { ...lintOnce(output, filepath, config), fixed, output };
+}
+
+function lintOnce(source, filepath, config) {
   let parsed;
   try {
     parsed = parse(source);
@@ -128,14 +147,14 @@ function lintSource(source, filepath, config = {}) {
   return { filepath, issues: withTsundere(kept), suppressed };
 }
 
-function lintFile(filepath, config = {}) {
+function lintFile(filepath, config = {}, options = {}) {
   if (createIgnoreMatcher(config)(filepath)) {
     return { filepath, issues: [], ignored: true };
   }
-  return lintFileUnchecked(filepath, config);
+  return lintFileUnchecked(filepath, config, options);
 }
 
-function lintFileUnchecked(filepath, config) {
+function lintFileUnchecked(filepath, config, options) {
   const resolved = path.resolve(filepath);
   if (!fs.existsSync(resolved)) {
     return fatalResult(
@@ -147,10 +166,14 @@ function lintFileUnchecked(filepath, config) {
   if (path.extname(resolved) !== ".js") return { filepath, issues: [] };
 
   const source = fs.readFileSync(resolved, "utf-8");
-  return lintSource(source, filepath, config);
+  const result = lintSource(source, filepath, config, options);
+  if (result.output !== undefined && result.output !== source) {
+    fs.writeFileSync(resolved, result.output);
+  }
+  return result;
 }
 
-function lintDirectory(dirpath, config = {}, recursive = true) {
+function lintDirectory(dirpath, config = {}, options = {}) {
   const results = [];
   const resolved = path.resolve(dirpath);
   const isIgnored = createIgnoreMatcher(config);
@@ -163,11 +186,11 @@ function lintDirectory(dirpath, config = {}, recursive = true) {
 
       const fullPath = path.join(dir, entry.name);
       if (isIgnored(fullPath)) continue;
-      if (entry.isDirectory() && recursive) {
+      if (entry.isDirectory()) {
         walkDir(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".js")) {
         const relPath = path.relative(process.cwd(), fullPath);
-        results.push(lintFileUnchecked(relPath, config));
+        results.push(lintFileUnchecked(relPath, config, options));
       }
     }
   }
