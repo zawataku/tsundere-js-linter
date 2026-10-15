@@ -24,8 +24,13 @@ const SEVERITY_EMOJI = {
   info: "💬",
 };
 
-function formatTerminal(issues) {
+function allIssues(results) {
+  return results.flatMap((r) => r.issues);
+}
+
+function formatTerminal(results) {
   const lines = [];
+  const issues = allIssues(results);
 
   if (issues.length === 0) {
     lines.push(
@@ -34,25 +39,24 @@ function formatTerminal(issues) {
     return lines.join("\n");
   }
 
-  let currentFile = null;
-  for (const issue of issues) {
-    if (issue.filepath !== currentFile) {
-      currentFile = issue.filepath;
-      lines.push(
-        `\n${Colors.BOLD}${Colors.MAGENTA}📁 ${currentFile}${Colors.RESET}`
-      );
-      lines.push(`${Colors.DIM}${"─".repeat(60)}${Colors.RESET}`);
-    }
-
-    const color = SEVERITY_COLORS[issue.severity] || Colors.RESET;
-    const emoji = SEVERITY_EMOJI[issue.severity] || "";
-    const lineNum = `L${issue.line}`.padEnd(5);
-
+  for (const result of results) {
+    if (result.issues.length === 0) continue;
     lines.push(
-      `  ${Colors.DIM}${lineNum}${Colors.RESET} ` +
-        `${color}${Colors.BOLD}[${issue.rule}]${Colors.RESET} ` +
-        `${emoji} ${issue.tsundere}`
+      `\n${Colors.BOLD}${Colors.MAGENTA}📁 ${result.filepath}${Colors.RESET}`
     );
+    lines.push(`${Colors.DIM}${"─".repeat(60)}${Colors.RESET}`);
+
+    for (const issue of result.issues) {
+      const color = SEVERITY_COLORS[issue.severity] || Colors.RESET;
+      const emoji = SEVERITY_EMOJI[issue.severity] || "";
+      const lineNum = `L${issue.line}`.padEnd(5);
+
+      lines.push(
+        `  ${Colors.DIM}${lineNum}${Colors.RESET} ` +
+          `${color}${Colors.BOLD}[${issue.rule}]${Colors.RESET} ` +
+          `${emoji} ${issue.tsundere}`
+      );
+    }
   }
 
   const errorCount = issues.filter((i) => i.severity === "error").length;
@@ -73,9 +77,9 @@ function formatTerminal(issues) {
   return lines.join("\n");
 }
 
-function formatJSON(issues) {
+function formatJSON(results) {
   return JSON.stringify(
-    issues.map((i) => ({
+    allIssues(results).map((i) => ({
       file: i.filepath,
       line: i.line,
       col: i.col,

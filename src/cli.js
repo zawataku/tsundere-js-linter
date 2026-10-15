@@ -87,13 +87,13 @@ function main() {
   }
 
   const target = args.path;
-  const options = { maxLineLength: args.maxLineLength };
-  let issues;
+  const config = { rules: { T002: { max: args.maxLineLength } } };
+  let results;
 
   if (fs.existsSync(target) && fs.statSync(target).isFile()) {
-    issues = lintFile(target, options);
+    results = [lintFile(target, config)];
   } else if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-    issues = lintDirectory(target, options);
+    results = lintDirectory(target, config);
   } else {
     console.error(
       `💢 '${target}' が見つからないわ！パスを確認しなさい！`
@@ -102,12 +102,14 @@ function main() {
   }
 
   if (args.json) {
-    console.log(formatJSON(issues));
+    console.log(formatJSON(results));
   } else {
-    console.log(formatTerminal(issues));
+    console.log(formatTerminal(results));
   }
 
-  const hasErrors = issues.some((i) => i.severity === "error");
+  const hasErrors = results.some((r) =>
+    r.issues.some((i) => i.severity === "error")
+  );
   process.exit(hasErrors ? 1 : 0);
 }
 

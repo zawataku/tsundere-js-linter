@@ -1,8 +1,8 @@
 const fs = require("fs");
 const path = require("path");
-const acorn = require("acorn");
 const personality = require("./personality");
-const rules = require("./rules");
+const { parse, walk, base } = require("./ast");
+const { rules } = require("./rules");
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -13,6 +13,29 @@ const SKIP_DIRS = new Set([
   ".next",
   "coverage",
 ]);
+
+/**
+ * 設定からルールの重要度とオプションを決める。無効なら null。
+ * 設定値は "off" / 重要度の文字列 / { severity, ...options } のどれか。
+ */
+function resolveRule(rule, config) {
+  const setting = config.rules ? config.rules[rule.id] : undefined;
+  const settings = {
+    severity: rule.severity,
+    options: { ...rule.defaultOptions },
+  };
+  if (setting === undefined) return settings;
+  if (setting === "off") return null;
+  if (typeof setting === "string") {
+    settings.severity = setting;
+    return settings;
+  }
+  const { severity, ...options } = setting;
+  if (severity === "off") return null;
+  if (severity) settings.severity = severity;
+  Object.assign(settings.options, options);
+  return settings;
+}
 
 function withTsundere(issues) {
   for (const issue of issues) {
@@ -25,71 +48,99 @@ function withTsundere(issues) {
   return issues;
 }
 
-function lintSource(source, filepath, options = {}) {
-  const sourceLines = source.split("\n");
-  const comments = [];
-  let ast;
-  try {
-    ast = acorn.parse(source, {
-      ecmaVersion: "latest",
-      sourceType: "module",
-      locations: true,
-      onComment: comments,
-    });
-  } catch (e) {
-    return withTsundere([
+function fatalResult(filepath, message, loc = {}) {
+  return {
+    filepath,
+    issues: withTsundere([
       {
         filepath,
-        line: e.loc ? e.loc.line : 0,
-        col: e.loc ? e.loc.column : 0,
+        line: loc.line || 0,
+        col: loc.column || 0,
         severity: "error",
         rule: "T000",
-        message: `SyntaxErrorって…コード動かしてみたことないの!? → ${e.message}`,
+        message,
       },
-    ]);
+    ]),
+  };
+}
+
+function runRule(rule, settings, shared) {
+  const issues = [];
+  const context = {
+    ...shared,
+    options: settings.options,
+    report({ node, loc, message, fix }) {
+      const start = node ? node.loc.start : loc;
+      const issue = {
+        filepath: shared.filepath,
+        line: start.line,
+        col: start.column,
+        severity: settings.severity,
+        rule: rule.id,
+        message,
+      };
+      if (fix) issue.fix = fix;
+      issues.push(issue);
+    },
+  };
+  rule.check(context);
+  return issues;
+}
+
+/**
+ * ソース文字列をlintする。
+ * @returns {{ filepath: string, issues: object[] }}
+ */
+function lintSource(source, filepath, config = {}) {
+  let parsed;
+  try {
+    parsed = parse(source);
+  } catch (e) {
+    return fatalResult(
+      filepath,
+      `SyntaxErrorって…コード動かしてみたことないの!? → ${e.message}`,
+      e.loc
+    );
   }
 
-  const issues = [
-    ...rules.checkUnusedImports(ast, sourceLines, filepath),
-    ...rules.checkLineLength(sourceLines, filepath, options.maxLineLength),
-    ...rules.checkMissingJSDoc(ast, source, comments, filepath),
-    ...rules.checkTodoFixme(comments, filepath),
-    ...rules.checkEmptyCatch(ast, filepath),
-    ...rules.checkLooseEquality(ast, filepath),
-    ...rules.checkConsoleLog(ast, filepath),
-    ...rules.checkMagicNumbers(ast, filepath),
-    ...rules.checkLongFunctions(ast, filepath),
-    ...rules.checkNestingDepth(ast, filepath),
-  ];
+  const { ast, comments } = parsed;
+  const shared = {
+    filepath,
+    source,
+    sourceLines: source.split("\n"),
+    ast,
+    comments,
+    walkSimple: (visitors) => walk.simple(ast, visitors, base),
+    walkAncestor: (visitors) => walk.ancestor(ast, visitors, base),
+  };
+
+  const issues = [];
+  for (const rule of rules) {
+    const settings = resolveRule(rule, config);
+    if (settings) issues.push(...runRule(rule, settings, shared));
+  }
 
   issues.sort((a, b) => a.line - b.line || a.col - b.col);
-
-  return withTsundere(issues);
+  return { filepath, issues: withTsundere(issues) };
 }
 
-function lintFile(filepath, options = {}) {
+function lintFile(filepath, config = {}) {
   const resolved = path.resolve(filepath);
   if (!fs.existsSync(resolved)) {
-    return withTsundere([
-      {
-        filepath,
-        line: 0,
-        col: 0,
-        severity: "error",
-        rule: "T000",
-        message: `ファイル '${filepath}' が見つからないんだけど？ちゃんとパス確認しなさいよ！`,
-      },
-    ]);
+    return fatalResult(
+      filepath,
+      `ファイル '${filepath}' が見つからないんだけど？ちゃんとパス確認しなさいよ！`
+    );
   }
 
-  if (path.extname(resolved) !== ".js") return [];
+  if (path.extname(resolved) !== ".js") return { filepath, issues: [] };
 
   const source = fs.readFileSync(resolved, "utf-8");
-  return lintSource(source, filepath, options);
+  return lintSource(source, filepath, config);
 }
 
-function lintDirectory(dirpath, options = {}, recursive = true) {
-  const allIssues = [];
+function lintDirectory(dirpath, config = {}, recursive = true) {
+  const results = [];
   const resolved = path.resolve(dirpath);
 
   function walkDir(dir) {
@@ -103,13 +154,18 @@ function lintDirectory(dirpath, options = {}, recursive = true) {
         walkDir(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".js")) {
         const relPath = path.relative(process.cwd(), fullPath);
-        allIssues.push(...lintFile(relPath, options));
+        results.push(lintFile(relPath, config));
       }
     }
   }
 
   walkDir(resolved);
-  return allIssues;
+  return results;
 }
 
-module.exports = { lintFile, lintDirectory, lintSource };
+module.exports = {
+  lintFile,
+  lintDirectory,
+  lintSource,
+  resolveRule,
+};

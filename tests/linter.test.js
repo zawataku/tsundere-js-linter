@@ -3,9 +3,10 @@ const assert = require("node:assert/strict");
 const path = require("path");
 const { lintSource, lintFile, lintDirectory } = require("../src/linter");
 const { formatTerminal, formatJSON } = require("../src/formatter");
+const { rules, findRule } = require("../src/rules");
 
-function lintCode(source) {
-  return lintSource(source, "test.js");
+function lintCode(source, config) {
+  return lintSource(source, "test.js", config).issues;
 }
 
 function rulesOf(issues) {
@@ -196,7 +197,7 @@ describe("bug fixes", () => {
   it("should respect maxLineLength option", () => {
     const source = `const x = "${"a".repeat(90)}";\n`;
     assert.ok(!rulesOf(lintCode(source)).includes("T002"));
-    const issues = lintSource(source, "test.js", { maxLineLength: 80 });
+    const issues = lintCode(source, { rules: { T002: { max: 80 } } });
     assert.ok(rulesOf(issues).includes("T002"));
   });
 
@@ -206,7 +207,7 @@ describe("bug fixes", () => {
   });
 
   it("should fill tsundere text for missing files", () => {
-    const [issue] = lintFile("non_existent_file.js");
+    const [issue] = lintFile("non_existent_file.js").issues;
     assert.ok(issue.tsundere.includes("non_existent_file.js"));
   });
 
@@ -260,14 +261,14 @@ describe("output formatting", () => {
   });
 
   it("should include rule in terminal output", () => {
-    const issues = lintCode(`import fs from 'fs';\nconst x = 1;\n`);
-    const output = formatTerminal(issues);
+    const result = lintSource(`import fs from 'fs';\nconst x = 1;\n`, "test.js");
+    const output = formatTerminal([result]);
     assert.ok(output.includes("T001"));
   });
 
   it("should produce valid JSON output", () => {
-    const issues = lintCode(`import fs from 'fs';\nconst x = 1;\n`);
-    const output = formatJSON(issues);
+    const result = lintSource(`import fs from 'fs';\nconst x = 1;\n`, "test.js");
+    const output = formatJSON([result]);
     const data = JSON.parse(output);
     assert.ok(Array.isArray(data));
     assert.ok(data.length > 0);
@@ -279,18 +280,47 @@ describe("file and directory linting", () => {
   it("should lint example bad_code.js", () => {
     const examplesDir = path.join(__dirname, "..", "examples");
     const badCodePath = path.join(examplesDir, "bad_code.js");
-    const issues = lintFile(badCodePath);
+    const { issues } = lintFile(badCodePath);
     assert.ok(issues.length > 0);
   });
 
   it("should lint example directory", () => {
     const examplesDir = path.join(__dirname, "..", "examples");
-    const issues = lintDirectory(examplesDir);
-    assert.ok(issues.length > 0);
+    const results = lintDirectory(examplesDir);
+    assert.ok(results.flatMap((r) => r.issues).length > 0);
   });
 
   it("should return error for non-existent file", () => {
-    const issues = lintFile("non_existent_file.js");
+    const { issues } = lintFile("non_existent_file.js");
     assert.ok(rulesOf(issues).includes("T000"));
+  });
+});
+
+describe("rule registry", () => {
+  it("should have unique ids and names", () => {
+    const keys = rules.flatMap((r) => [r.id, r.name]);
+    assert.strictEqual(new Set(keys).size, keys.length);
+  });
+
+  it("should find rules by id or name", () => {
+    assert.strictEqual(findRule("T006"), findRule("loose-equality"));
+    assert.strictEqual(findRule("nope"), undefined);
+  });
+
+  it("should turn rules off", () => {
+    const issues = lintCode(`if (x == 1) {}\n`, { rules: { T006: "off" } });
+    assert.ok(!rulesOf(issues).includes("T006"));
+  });
+
+  it("should override severity", () => {
+    const issues = lintCode(`if (x == 1) {}\n`, { rules: { T006: "warning" } });
+    assert.strictEqual(issues.find((i) => i.rule === "T006").severity, "warning");
+  });
+
+  it("should override severity and options together", () => {
+    const issues = lintCode(`if (x > 42) {}\n`, {
+      rules: { T008: { severity: "warning", allowed: [42] } },
+    });
+    assert.ok(!rulesOf(issues).includes("T008"));
   });
 });
