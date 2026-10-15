@@ -28,14 +28,29 @@ function allIssues(results) {
   return results.flatMap((r) => r.issues);
 }
 
+// 指摘以外のひとこと（無効化コメントへの反応など）
+function footerLines(results) {
+  const lines = [];
+  const suppressed = results.reduce(
+    (n, r) => n + (r.suppressed ? r.suppressed.length : 0),
+    0
+  );
+  if (suppressed > 0) {
+    lines.push(
+      `   ${Colors.DIM}🙈 ${personality.getSuppressedReaction(suppressed)}${Colors.RESET}`
+    );
+  }
+  return lines;
+}
+
 function formatTerminal(results) {
   const lines = [];
   const issues = allIssues(results);
 
   if (issues.length === 0) {
-    lines.push(
-      `\n${Colors.PINK}💝 ${personality.getPraise()}${Colors.RESET}\n`
-    );
+    lines.push(`\n${Colors.PINK}💝 ${personality.getPraise()}${Colors.RESET}`);
+    lines.push(...footerLines(results));
+    lines.push("");
     return lines.join("\n");
   }
 
@@ -72,6 +87,7 @@ function formatTerminal(results) {
       `${Colors.YELLOW}💭 Warning: ${warnCount}${Colors.RESET}  ` +
       `${Colors.CYAN}💬 Info: ${infoCount}${Colors.RESET}`
   );
+  lines.push(...footerLines(results));
   lines.push("");
 
   return lines.join("\n");

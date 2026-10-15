@@ -62,6 +62,12 @@ const SUMMARY_FEW = [
   "たった{count}個。…ちょっとだけ成長したんじゃない？認めてあげてもいいわ。",
 ];
 
+const SUPPRESSED = [
+  "…{count}個は見逃してあげたんだからね。今回だけよ！",
+  "無効化コメントで{count}個も隠してるじゃない…あたしの目はごまかせないわよ。",
+  "{count}個は黙らせたのね…べ、別に寂しくなんかないんだから！",
+];
+
 function randomChoice(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -82,4 +88,14 @@ function getSummary(count) {
   return randomChoice(SUMMARY_BAD).replace("{count}", count);
 }
 
-module.exports = { formatIssue, getPraise, getSummary };
+/** 無効化コメントで消された指摘の数へのひとこと */
+function getSuppressedReaction(count) {
+  return randomChoice(SUPPRESSED).replace("{count}", count);
+}
+
+module.exports = {
+  formatIssue,
+  getPraise,
+  getSummary,
+  getSuppressedReaction,
+};

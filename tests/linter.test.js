@@ -296,6 +296,83 @@ describe("file and directory linting", () => {
   });
 });
 
+describe("inline disable comments", () => {
+  it("should disable the next line", () => {
+    const result = lintSource(
+      `// tsundere-disable-next-line T006\nif (x == 1) {}\nif (y == 1) {}\n`,
+      "test.js"
+    );
+    const t006 = result.issues.filter((i) => i.rule === "T006");
+    assert.deepStrictEqual(t006.map((i) => i.line), [3]);
+    assert.strictEqual(result.suppressed.length, 1);
+  });
+
+  it("should disable the same line", () => {
+    const issues = lintCode(`if (x == 1) {} // tsundere-disable-line\n`);
+    assert.ok(!rulesOf(issues).includes("T006"));
+  });
+
+  it("should accept rule names and a reason", () => {
+    const issues = lintCode(
+      `// tsundere-disable-next-line loose-equality, T008 -- legacy API\nif (x == 42) {}\n`
+    );
+    assert.ok(!rulesOf(issues).includes("T006"));
+    assert.ok(!rulesOf(issues).includes("T008"));
+  });
+
+  it("should only disable the listed rules", () => {
+    const issues = lintCode(
+      `// tsundere-disable-next-line T008\nif (x == 42) {}\n`
+    );
+    assert.ok(rulesOf(issues).includes("T006"));
+    assert.ok(!rulesOf(issues).includes("T008"));
+  });
+
+  it("should disable a range until enable", () => {
+    const source = [
+      "if (a == 1) {}",
+      "/* tsundere-disable T006 */",
+      "if (b == 1) {}",
+      "if (c == 1) {}",
+      "/* tsundere-enable T006 */",
+      "if (d == 1) {}",
+    ].join("\n");
+    const lines = lintCode(source)
+      .filter((i) => i.rule === "T006")
+      .map((i) => i.line);
+    assert.deepStrictEqual(lines, [1, 6]);
+  });
+
+  it("should re-enable a single rule inside disable-all", () => {
+    const source = [
+      "/* tsundere-disable */",
+      "/* tsundere-enable T006 */",
+      "if (x == 42) {}",
+    ].join("\n");
+    const issues = lintCode(source);
+    assert.ok(rulesOf(issues).includes("T006"));
+    assert.ok(!rulesOf(issues).includes("T008"));
+  });
+
+  it("should warn about unknown rules without disabling everything", () => {
+    const issues = lintCode(
+      `// tsundere-disable-next-line T999\nif (x == 1) {}\n`
+    );
+    assert.ok(rulesOf(issues).includes("T006"));
+    const problem = issues.find((i) => i.rule === "T000");
+    assert.ok(problem.message.includes("T999"));
+  });
+
+  it("should react to suppressed issues in terminal output", () => {
+    const result = lintSource(
+      `/** A. */\nfunction a() {\n  return 1; // tsundere-disable-line\n}\n// tsundere-disable-next-line\nif (x == 1) {}\n`,
+      "test.js"
+    );
+    const output = formatTerminal([result]);
+    assert.ok(output.includes("🙈"));
+  });
+});
+
 describe("rule registry", () => {
   it("should have unique ids and names", () => {
     const keys = rules.flatMap((r) => [r.id, r.name]);

@@ -4,6 +4,7 @@ const personality = require("./personality");
 const { parse, walk, base } = require("./ast");
 const { rules } = require("./rules");
 const { createIgnoreMatcher } = require("./config");
+const { parseDirectives, applyDirectives } = require("./directives");
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -115,14 +116,16 @@ function lintSource(source, filepath, config = {}) {
     walkAncestor: (visitors) => walk.ancestor(ast, visitors, base),
   };
 
-  const issues = [];
+  const directives = parseDirectives(comments, filepath);
+  const issues = [...directives.problems];
   for (const rule of rules) {
     const settings = resolveRule(rule, config);
     if (settings) issues.push(...runRule(rule, settings, shared));
   }
 
   issues.sort((a, b) => a.line - b.line || a.col - b.col);
-  return { filepath, issues: withTsundere(issues) };
+  const { kept, suppressed } = applyDirectives(issues, directives);
+  return { filepath, issues: withTsundere(kept), suppressed };
 }
 
 function lintFile(filepath, config = {}) {
