@@ -43,4 +43,10 @@ function findRule(key) {
   return byKey.get(key);
 }
 
-module.exports = { rules, findRule };
+/** セリフに埋め込む用の短い説明（説明の括弧書きを除いたもの） */
+function ruleLabel(id) {
+  const rule = findRule(id);
+  return rule ? rule.description.replace(/（.*）$/, "") : id;
+}
+
+module.exports = { rules, findRule, ruleLabel };

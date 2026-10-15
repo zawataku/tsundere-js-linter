@@ -79,6 +79,32 @@ const FIXABLE_HINT = [
   "{count}個は --fix で直せるわよ。…べ、別に手伝いたいわけじゃないけど！",
 ];
 
+// 同じミスが何回目から反応するか、と回数ごとのセリフ
+const REPEAT_THRESHOLD = 3;
+const REPEATED = [
+  {
+    min: 10,
+    lines: [
+      "「{label}」が{count}回…もう、わざとやってるでしょ!?",
+      "「{label}」{count}回目…あたしを困らせて楽しいわけ!?",
+    ],
+  },
+  {
+    min: 5,
+    lines: [
+      "「{label}」が{count}回も!? 何回言わせるのよ！",
+      "また「{label}」…{count}回目なんだけど!? ちゃんと聞いてる？",
+    ],
+  },
+  {
+    min: REPEAT_THRESHOLD,
+    lines: [
+      "また「{label}」…これで{count}回目よ？",
+      "「{label}」、{count}回目ね。…クセになってるんじゃない？",
+    ],
+  },
+];
+
 function randomChoice(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -114,6 +140,19 @@ function getFixableHint(count) {
   return randomChoice(FIXABLE_HINT).replace("{count}", count);
 }
 
+/**
+ * 同じ種類のミスが何度も出たときのひとこと。回数が少なければ null。
+ * @param {string} label ミスの種類を表す短い説明（例: "`==` / `!=` の使用"）
+ * @param {number} count 出現回数
+ */
+function getRepeatReaction(label, count) {
+  const tier = REPEATED.find((t) => count >= t.min);
+  if (!tier) return null;
+  return randomChoice(tier.lines)
+    .replace("{label}", label)
+    .replace("{count}", count);
+}
+
 module.exports = {
   formatIssue,
   getPraise,
@@ -121,4 +160,5 @@ module.exports = {
   getSuppressedReaction,
   getFixReaction,
   getFixableHint,
+  getRepeatReaction,
 };

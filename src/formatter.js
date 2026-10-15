@@ -1,4 +1,5 @@
 const personality = require("./personality");
+const { ruleLabel } = require("./rules");
 
 const Colors = {
   RESET: "\x1b[0m",
@@ -26,6 +27,23 @@ const SEVERITY_EMOJI = {
 
 function allIssues(results) {
   return results.flatMap((r) => r.issues);
+}
+
+// ファイル内で同じルールに何度も引っかかっていたら反応する
+function repeatLines(issues) {
+  const counts = new Map();
+  for (const issue of issues) {
+    if (issue.rule === "T000") continue;
+    counts.set(issue.rule, (counts.get(issue.rule) || 0) + 1);
+  }
+  const lines = [];
+  for (const [rule, count] of counts) {
+    const reaction = personality.getRepeatReaction(ruleLabel(rule), count);
+    if (reaction) {
+      lines.push(`  ${Colors.PINK}🔁 [${rule}] ${reaction}${Colors.RESET}`);
+    }
+  }
+  return lines;
 }
 
 function sum(results, count) {
@@ -86,6 +104,7 @@ function formatTerminal(results) {
           `${emoji} ${issue.tsundere}`
       );
     }
+    lines.push(...repeatLines(result.issues));
   }
 
   const errorCount = issues.filter((i) => i.severity === "error").length;

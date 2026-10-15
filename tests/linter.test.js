@@ -552,6 +552,32 @@ describe("file types", () => {
   });
 });
 
+describe("repeated mistakes", () => {
+  const personality = require("../src/personality");
+
+  it("should not react below the threshold", () => {
+    assert.strictEqual(personality.getRepeatReaction("x", 2), null);
+  });
+
+  it("should include label and count", () => {
+    for (const count of [3, 5, 10]) {
+      const text = personality.getRepeatReaction("`==` の使用", count);
+      assert.ok(text.includes("`==` の使用"));
+      assert.ok(text.includes(String(count)));
+    }
+  });
+
+  it("should react per file in terminal output", () => {
+    const three = lintSource(`a == 1;\nb == 1;\nc == 1;\n`, "three.js");
+    const two = lintSource(`a == 1;\nb == 1;\n`, "two.js");
+    const output = formatTerminal([three, two]);
+    const reactions = output.split("\n").filter((l) => l.includes("🔁"));
+    assert.strictEqual(reactions.length, 1);
+    assert.ok(reactions[0].includes("[T006]"));
+    assert.ok(reactions[0].includes("`==` / `!=` の使用"));
+  });
+});
+
 describe("inline disable comments", () => {
   it("should disable the next line", () => {
     const result = lintSource(
