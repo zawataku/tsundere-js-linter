@@ -20,6 +20,13 @@ const rules = [
   require("./t008-magic-numbers"),
   require("./t009-long-functions"),
   require("./t010-nesting-depth"),
+  require("./t011-no-var"),
+  require("./t012-no-debugger"),
+  require("./t013-no-eval"),
+  require("./t014-duplicate-keys"),
+  require("./t015-unreachable-code"),
+  require("./t016-async-without-await"),
+  require("./t017-too-many-params"),
 ];
 
 const byKey = new Map();

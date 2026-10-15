@@ -296,6 +296,123 @@ describe("file and directory linting", () => {
   });
 });
 
+describe("T001: require and re-export", () => {
+  it("should detect unused require", () => {
+    const issues = lintCode(`const fs = require("fs");\nconst x = 1;\n`);
+    assert.ok(rulesOf(issues).includes("T001"));
+  });
+
+  it("should detect unused destructured require bindings", () => {
+    const issues = lintCode(
+      `const { join, resolve: r } = require("path");\njoin("a");\n`
+    );
+    const names = issues.filter((i) => i.rule === "T001").map((i) => i.message);
+    assert.strictEqual(names.length, 1);
+    assert.ok(names[0].includes("'r'"));
+  });
+
+  it("should not flag used require", () => {
+    const issues = lintCode(`const fs = require("fs");\nfs.readFileSync("a");\n`);
+    assert.ok(!rulesOf(issues).includes("T001"));
+  });
+
+  it("should treat re-exported imports as used", () => {
+    const issues = lintCode(`import x from "y";\nexport { x };\n`);
+    assert.ok(!rulesOf(issues).includes("T001"));
+  });
+});
+
+describe("T011: no-var", () => {
+  it("should detect var", () => {
+    assert.ok(rulesOf(lintCode(`var x = 1;\n`)).includes("T011"));
+  });
+
+  it("should not flag let/const", () => {
+    assert.ok(!rulesOf(lintCode(`let x = 1;\nconst y = x;\n`)).includes("T011"));
+  });
+});
+
+describe("T012: no-debugger", () => {
+  it("should detect debugger", () => {
+    assert.ok(rulesOf(lintCode(`debugger;\n`)).includes("T012"));
+  });
+});
+
+describe("T013: no-eval", () => {
+  it("should detect eval and new Function", () => {
+    const issues = lintCode(`eval("1");\nconst f = new Function("return 1");\n`);
+    assert.strictEqual(issues.filter((i) => i.rule === "T013").length, 2);
+  });
+
+  it("should not flag methods named eval", () => {
+    assert.ok(!rulesOf(lintCode(`obj.eval("1");\n`)).includes("T013"));
+  });
+});
+
+describe("T014: duplicate keys", () => {
+  it("should detect duplicate keys", () => {
+    const issues = lintCode(`const o = { a: 1, "a": 2 };\n`);
+    assert.ok(rulesOf(issues).includes("T014"));
+  });
+
+  it("should allow getter/setter pairs", () => {
+    const issues = lintCode(`const o = { get a() { return 1; }, set a(v) {} };\n`);
+    assert.ok(!rulesOf(issues).includes("T014"));
+  });
+
+  it("should not flag computed keys", () => {
+    const issues = lintCode(`const k = "a";\nconst o = { [k]: 1, [k]: 2 };\n`);
+    assert.ok(!rulesOf(issues).includes("T014"));
+  });
+});
+
+describe("T015: unreachable code", () => {
+  it("should detect code after return", () => {
+    const issues = lintCode(`function f() {\n  return 1;\n  f();\n}\n`);
+    const issue = issues.find((i) => i.rule === "T015");
+    assert.strictEqual(issue.line, 3);
+  });
+
+  it("should detect code after break in switch", () => {
+    const issues = lintCode(`switch (x) {\n  case 1:\n    break;\n    f();\n}\n`);
+    assert.ok(rulesOf(issues).includes("T015"));
+  });
+
+  it("should allow hoisted function declarations after return", () => {
+    const issues = lintCode(`function f() {\n  return g();\n  function g() { return 1; }\n}\n`);
+    assert.ok(!rulesOf(issues).includes("T015"));
+  });
+});
+
+describe("T016: async without await", () => {
+  it("should detect async function without await", () => {
+    const issues = lintCode(`async function f() {\n  return 1;\n}\n`);
+    assert.ok(rulesOf(issues).includes("T016"));
+  });
+
+  it("should not count await in nested functions", () => {
+    const issues = lintCode(`async function f() {\n  return async () => { await g(); };\n}\n`);
+    assert.strictEqual(issues.filter((i) => i.rule === "T016").length, 1);
+  });
+
+  it("should accept for await", () => {
+    const issues = lintCode(`async function f(xs) {\n  for await (const x of xs) g(x);\n}\n`);
+    assert.ok(!rulesOf(issues).includes("T016"));
+  });
+});
+
+describe("T017: too many params", () => {
+  it("should detect too many params", () => {
+    const issues = lintCode(`const f = (a, b, c, d, e) => a;\n`);
+    assert.ok(rulesOf(issues).includes("T017"));
+  });
+
+  it("should respect max option", () => {
+    const issues = lintCode(`const f = (a, b, c) => a;\n`, { rules: { T017: { max: 2 } } });
+    assert.ok(rulesOf(issues).includes("T017"));
+  });
+});
+
 describe("inline disable comments", () => {
   it("should disable the next line", () => {
     const result = lintSource(

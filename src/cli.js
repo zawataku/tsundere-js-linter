@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
-const path = require("path");
 const { lintFile, lintDirectory } = require("./linter");
 const { formatTerminal, formatJSON } = require("./formatter");
 const { loadConfig, setRuleOption, ConfigError } = require("./config");
