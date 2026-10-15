@@ -578,6 +578,43 @@ describe("repeated mistakes", () => {
   });
 });
 
+describe("GitHub Actions output", () => {
+  const { formatGitHub } = require("../src/formatter");
+
+  it("should emit workflow commands per issue", () => {
+    const result = lintSource(`if (x == 1) {}\n`, path.join("src", "a.js"));
+    const lines = formatGitHub([result]).split("\n");
+    const t006 = lines.find((l) => l.includes("T006"));
+    assert.match(
+      t006,
+      /^::error file=src\/a\.js,line=1,col=5,title=tsundere-js-linter T006::/
+    );
+  });
+
+  it("should map info to notice and escape special characters", () => {
+    const issue = {
+      filepath: "a,b:c.js",
+      line: 2,
+      col: 0,
+      severity: "info",
+      rule: "T007",
+      message: "",
+      tsundere: "100%\nだめ",
+    };
+    const [line] = formatGitHub([{ filepath: "a,b:c.js", issues: [issue] }]).split("\n");
+    assert.strictEqual(
+      line,
+      "::notice file=a%2Cb%3Ac.js,line=2,col=1,title=tsundere-js-linter T007::100%25%0Aだめ"
+    );
+  });
+
+  it("should omit position for file-level problems", () => {
+    const result = lintFile("non_existent_file.js");
+    const [line] = formatGitHub([result]).split("\n");
+    assert.match(line, /^::error file=non_existent_file\.js,title=/);
+  });
+});
+
 describe("inline disable comments", () => {
   it("should disable the next line", () => {
     const result = lintSource(

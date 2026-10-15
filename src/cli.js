@@ -2,7 +2,7 @@
 
 const fs = require("fs");
 const { lintFile, lintDirectory } = require("./linter");
-const { formatTerminal, formatJSON } = require("./formatter");
+const { FORMATTERS } = require("./formatter");
 const { loadConfig, setRuleOption, ConfigError } = require("./config");
 
 const VERSION = "1.0.0";
@@ -17,7 +17,7 @@ const BANNER = `
 function parseArgs(argv) {
   const args = {
     path: null,
-    json: false,
+    format: "terminal",
     maxLineLength: null,
     config: null,
     fix: false,
@@ -30,7 +30,16 @@ function parseArgs(argv) {
   while (i < argv.length) {
     const arg = argv[i];
     if (arg === "--json" || arg === "-j") {
-      args.json = true;
+      args.format = "json";
+    } else if (arg === "--format" || arg === "-f") {
+      i++;
+      if (!(argv[i] in FORMATTERS)) {
+        console.error(
+          `💢 '${argv[i]}' なんて出力形式知らないわよ！ ${Object.keys(FORMATTERS).join(" / ")} から選びなさい`
+        );
+        process.exit(2);
+      }
+      args.format = argv[i];
     } else if (arg === "--max-line-length") {
       i++;
       const value = Number(argv[i]);
@@ -68,7 +77,8 @@ function showHelp() {
   path                         lintするファイルまたはディレクトリ
 
 オプション:
-  --json, -j                   JSON形式で出力
+  --format, -f <name>          出力形式 terminal / json / github（デフォルト: terminal）
+  --json, -j                   --format json と同じ
   --config, -c <path>          設定ファイルを指定（デフォルト: .tsundererc.json を探す）
   --max-line-length <number>   最大行長（設定ファイルより優先）
   --fix                        直せる指摘を自動修正してファイルを書き換える
@@ -103,7 +113,7 @@ function main() {
     setRuleOption(config, "T002", "max", args.maxLineLength);
   }
 
-  if (!args.json && !args.noBanner) {
+  if (args.format === "terminal" && !args.noBanner) {
     console.log(BANNER);
   }
 
@@ -122,11 +132,7 @@ function main() {
     process.exit(2);
   }
 
-  if (args.json) {
-    console.log(formatJSON(results));
-  } else {
-    console.log(formatTerminal(results));
-  }
+  console.log(FORMATTERS[args.format](results));
 
   const hasErrors = results.some((r) =>
     r.issues.some((i) => i.severity === "error")

@@ -1,3 +1,4 @@
+const path = require("path");
 const personality = require("./personality");
 const { ruleLabel } = require("./rules");
 
@@ -143,4 +144,50 @@ function formatJSON(results) {
   );
 }
 
-module.exports = { formatTerminal, formatJSON };
+const GITHUB_LEVELS = {
+  error: "error",
+  warning: "warning",
+  info: "notice",
+};
+
+// https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions
+function escapeData(text) {
+  return String(text)
+    .replace(/%/g, "%25")
+    .replace(/\r/g, "%0D")
+    .replace(/\n/g, "%0A");
+}
+
+function escapeProperty(text) {
+  return escapeData(text).replace(/:/g, "%3A").replace(/,/g, "%2C");
+}
+
+/**
+ * GitHub Actions のワークフローコマンド形式で出力する。
+ * PR の差分にツンデレな注釈が付く。
+ */
+function formatGitHub(results) {
+  const lines = [];
+  for (const issue of allIssues(results)) {
+    const level = GITHUB_LEVELS[issue.severity] || "notice";
+    const file = path
+      .relative(process.cwd(), path.resolve(issue.filepath))
+      .replace(/\\/g, "/");
+    const props = [`file=${escapeProperty(file)}`];
+    if (issue.line > 0) {
+      props.push(`line=${issue.line}`, `col=${issue.col + 1}`);
+    }
+    props.push(`title=${escapeProperty(`tsundere-js-linter ${issue.rule}`)}`);
+    lines.push(`::${level} ${props.join(",")}::${escapeData(issue.tsundere)}`);
+  }
+  lines.push(personality.getSummary(allIssues(results).length));
+  return lines.join("\n");
+}
+
+const FORMATTERS = {
+  terminal: formatTerminal,
+  json: formatJSON,
+  github: formatGitHub,
+};
+
+module.exports = { formatTerminal, formatJSON, formatGitHub, FORMATTERS };
