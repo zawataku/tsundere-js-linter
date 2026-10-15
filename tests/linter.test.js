@@ -498,6 +498,60 @@ describe("--fix", () => {
   });
 });
 
+describe("file types", () => {
+  it("should parse JSX and treat JSX usage as import usage", () => {
+    const source = [
+      `import Button from "./Button";`,
+      `import Icon from "./Icon";`,
+      `import UI from "./ui";`,
+      `export const App = () => (`,
+      `  <div className="app" {...props}>`,
+      `    <Button onClick={() => x == 1} />`,
+      `    <UI.Card>{/* TODO: later */}</UI.Card>`,
+      `    <>text</>`,
+      `  </div>`,
+      `);`,
+    ].join("\n");
+    const issues = lintSource(source, "App.jsx").issues;
+    const unused = issues.filter((i) => i.rule === "T001").map((i) => i.message);
+    assert.strictEqual(unused.length, 1);
+    assert.ok(unused[0].includes("'Icon'"));
+    assert.ok(rulesOf(issues).includes("T006"));
+    assert.ok(rulesOf(issues).includes("T004"));
+    assert.ok(!rulesOf(issues).includes("T000"));
+  });
+
+  it("should parse .cjs as CommonJS (top-level return)", () => {
+    const issues = lintSource(`if (x) return;\nmodule.exports = 1;\n`, "a.cjs").issues;
+    assert.ok(!rulesOf(issues).includes("T000"));
+  });
+
+  it("should fall back to script for .js", () => {
+    const issues = lintSource(`with (obj) { a(); }\n`, "a.js").issues;
+    assert.ok(!rulesOf(issues).includes("T000"));
+  });
+
+  it("should parse .mjs strictly as a module", () => {
+    const issues = lintSource(`with (obj) { a(); }\n`, "a.mjs").issues;
+    assert.ok(rulesOf(issues).includes("T000"));
+  });
+
+  it("should lint configured extensions in directories", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tsundere-ext-"));
+    try {
+      for (const name of ["a.js", "b.mjs", "c.cjs", "d.jsx", "e.ts", "f.txt"]) {
+        fs.writeFileSync(path.join(dir, name), "var x = 1;\n");
+      }
+      const names = (config) =>
+        lintDirectory(dir, config).map((r) => path.basename(r.filepath)).sort();
+      assert.deepStrictEqual(names({}), ["a.js", "b.mjs", "c.cjs", "d.jsx"]);
+      assert.deepStrictEqual(names({ extensions: [".mjs"] }), ["b.mjs"]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("inline disable comments", () => {
   it("should disable the next line", () => {
     const result = lintSource(

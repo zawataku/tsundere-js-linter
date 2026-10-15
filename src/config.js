@@ -4,7 +4,8 @@ const { findRule } = require("./rules");
 
 const CONFIG_FILENAME = ".tsundererc.json";
 const SEVERITIES = ["error", "warning", "info"];
-const TOP_LEVEL_KEYS = new Set(["rules", "ignorePatterns"]);
+const TOP_LEVEL_KEYS = new Set(["rules", "ignorePatterns", "extensions"]);
+const DEFAULT_EXTENSIONS = [".js", ".mjs", ".cjs", ".jsx"];
 
 class ConfigError extends Error {}
 
@@ -64,7 +65,11 @@ function validateConfig(raw) {
     }
   }
 
-  const config = { rules: {}, ignorePatterns: [] };
+  const config = {
+    rules: {},
+    ignorePatterns: [],
+    extensions: DEFAULT_EXTENSIONS,
+  };
 
   if (raw.rules !== undefined) {
     if (typeOf(raw.rules) !== "object") {
@@ -88,6 +93,20 @@ function validateConfig(raw) {
       throw new ConfigError("ignorePatterns は文字列の配列で書きなさいよ！");
     }
     config.ignorePatterns = patterns;
+  }
+
+  if (raw.extensions !== undefined) {
+    const exts = raw.extensions;
+    if (
+      typeOf(exts) !== "array" ||
+      exts.length === 0 ||
+      !exts.every((e) => typeof e === "string" && /^\.\w+$/.test(e))
+    ) {
+      throw new ConfigError(
+        'extensions は ".js" みたいな拡張子の配列で書きなさいよ！'
+      );
+    }
+    config.extensions = exts;
   }
 
   return config;
@@ -195,6 +214,7 @@ function createIgnoreMatcher(config) {
 
 module.exports = {
   CONFIG_FILENAME,
+  DEFAULT_EXTENSIONS,
   ConfigError,
   loadConfig,
   validateConfig,

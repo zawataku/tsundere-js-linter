@@ -80,6 +80,10 @@ module.exports = {
         );
         if (!inImport) usedNames.add(node.name);
       },
+      // <Foo /> のようにJSXで使われている場合
+      JSXIdentifier(node) {
+        if (importedNames.has(node.name)) usedNames.add(node.name);
+      },
       // export { x } の x は acorn-walk が訪問しないので別に拾う
       ExportNamedDeclaration(node) {
         if (node.source) return;

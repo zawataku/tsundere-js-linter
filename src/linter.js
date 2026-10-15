@@ -3,7 +3,7 @@ const path = require("path");
 const personality = require("./personality");
 const { parse, walk, base } = require("./ast");
 const { rules } = require("./rules");
-const { createIgnoreMatcher } = require("./config");
+const { createIgnoreMatcher, DEFAULT_EXTENSIONS } = require("./config");
 const { parseDirectives, applyDirectives } = require("./directives");
 const { applyFixes } = require("./fixer");
 
@@ -115,7 +115,7 @@ function lintSource(source, filepath, config = {}, options = {}) {
 function lintOnce(source, filepath, config) {
   let parsed;
   try {
-    parsed = parse(source);
+    parsed = parse(source, filepath);
   } catch (e) {
     return fatalResult(
       filepath,
@@ -147,6 +147,11 @@ function lintOnce(source, filepath, config) {
   return { filepath, issues: withTsundere(kept), suppressed };
 }
 
+function hasLintableExtension(filepath, config) {
+  const extensions = config.extensions || DEFAULT_EXTENSIONS;
+  return extensions.includes(path.extname(filepath));
+}
+
 function lintFile(filepath, config = {}, options = {}) {
   if (createIgnoreMatcher(config)(filepath)) {
     return { filepath, issues: [], ignored: true };
@@ -163,7 +168,7 @@ function lintFileUnchecked(filepath, config, options) {
     );
   }
 
-  if (path.extname(resolved) !== ".js") return { filepath, issues: [] };
+  if (!hasLintableExtension(resolved, config)) return { filepath, issues: [] };
 
   const source = fs.readFileSync(resolved, "utf-8");
   const result = lintSource(source, filepath, config, options);
@@ -188,7 +193,7 @@ function lintDirectory(dirpath, config = {}, options = {}) {
       if (isIgnored(fullPath)) continue;
       if (entry.isDirectory()) {
         walkDir(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(".js")) {
+      } else if (entry.isFile() && hasLintableExtension(entry.name, config)) {
         const relPath = path.relative(process.cwd(), fullPath);
         results.push(lintFileUnchecked(relPath, config, options));
       }

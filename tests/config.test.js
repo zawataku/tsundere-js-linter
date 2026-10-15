@@ -44,6 +44,12 @@ describe("validateConfig", () => {
     assert.throws(() => validateConfig({ rule: {} }), ConfigError);
   });
 
+  it("should validate extensions", () => {
+    assert.deepStrictEqual(validateConfig({ extensions: [".js"] }).extensions, [".js"]);
+    assert.throws(() => validateConfig({ extensions: ["js"] }), ConfigError);
+    assert.throws(() => validateConfig({ extensions: [] }), ConfigError);
+  });
+
   it("should reject non-string ignorePatterns", () => {
     assert.throws(() => validateConfig({ ignorePatterns: [1] }), ConfigError);
   });
