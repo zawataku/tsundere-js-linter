@@ -3,6 +3,7 @@ const path = require("path");
 const personality = require("./personality");
 const { parse, walk, base } = require("./ast");
 const { rules } = require("./rules");
+const { createIgnoreMatcher } = require("./config");
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -125,6 +126,13 @@ function lintSource(source, filepath, config = {}) {
 }
 
 function lintFile(filepath, config = {}) {
+  if (createIgnoreMatcher(config)(filepath)) {
+    return { filepath, issues: [], ignored: true };
+  }
+  return lintFileUnchecked(filepath, config);
+}
+
+function lintFileUnchecked(filepath, config) {
   const resolved = path.resolve(filepath);
   if (!fs.existsSync(resolved)) {
     return fatalResult(
@@ -142,6 +150,7 @@ function lintFile(filepath, config = {}) {
 function lintDirectory(dirpath, config = {}, recursive = true) {
   const results = [];
   const resolved = path.resolve(dirpath);
+  const isIgnored = createIgnoreMatcher(config);
 
   function walkDir(dir) {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -150,11 +159,12 @@ function lintDirectory(dirpath, config = {}, recursive = true) {
       if (SKIP_DIRS.has(entry.name)) continue;
 
       const fullPath = path.join(dir, entry.name);
+      if (isIgnored(fullPath)) continue;
       if (entry.isDirectory() && recursive) {
         walkDir(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".js")) {
         const relPath = path.relative(process.cwd(), fullPath);
-        results.push(lintFile(relPath, config));
+        results.push(lintFileUnchecked(relPath, config));
       }
     }
   }

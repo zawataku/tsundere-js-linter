@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { lintFile, lintDirectory } = require("./linter");
 const { formatTerminal, formatJSON } = require("./formatter");
+const { loadConfig, setRuleOption, ConfigError } = require("./config");
 
 const VERSION = "1.0.0";
 
@@ -18,7 +19,8 @@ function parseArgs(argv) {
   const args = {
     path: null,
     json: false,
-    maxLineLength: 120,
+    maxLineLength: null,
+    config: null,
     noBanner: false,
     version: false,
     help: false,
@@ -39,6 +41,9 @@ function parseArgs(argv) {
         process.exit(2);
       }
       args.maxLineLength = value;
+    } else if (arg === "--config" || arg === "-c") {
+      i++;
+      args.config = argv[i];
     } else if (arg === "--no-banner") {
       args.noBanner = true;
     } else if (arg === "--version" || arg === "-v") {
@@ -62,7 +67,8 @@ function showHelp() {
 
 オプション:
   --json, -j                   JSON形式で出力
-  --max-line-length <number>   最大行長（デフォルト: 120）
+  --config, -c <path>          設定ファイルを指定（デフォルト: .tsundererc.json を探す）
+  --max-line-length <number>   最大行長（設定ファイルより優先）
   --no-banner                  バナーを非表示
   --version, -v                バージョン表示
   --help, -h                   ヘルプ表示
@@ -82,12 +88,23 @@ function main() {
     process.exit(args.help ? 0 : 1);
   }
 
+  let config;
+  try {
+    config = loadConfig({ configPath: args.config });
+  } catch (e) {
+    if (!(e instanceof ConfigError)) throw e;
+    console.error(`💢 設定ファイルがおかしいわよ！\n   ${e.message}`);
+    process.exit(2);
+  }
+  if (args.maxLineLength !== null) {
+    setRuleOption(config, "T002", "max", args.maxLineLength);
+  }
+
   if (!args.json && !args.noBanner) {
     console.log(BANNER);
   }
 
   const target = args.path;
-  const config = { rules: { T002: { max: args.maxLineLength } } };
   let results;
 
   if (fs.existsSync(target) && fs.statSync(target).isFile()) {
