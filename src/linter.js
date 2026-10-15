@@ -6,6 +6,7 @@ const { rules } = require("./rules");
 const { createIgnoreMatcher, DEFAULT_EXTENSIONS } = require("./config");
 const { parseDirectives, applyDirectives } = require("./directives");
 const { applyFixes } = require("./fixer");
+const { getStagedFiles, readStagedFile } = require("./git");
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -204,9 +205,34 @@ function lintDirectory(dirpath, config = {}, options = {}) {
   return results;
 }
 
+/** ファイルとディレクトリが混ざったパスの一覧をlintする */
+function lintPaths(paths, config = {}, options = {}) {
+  return paths.flatMap((p) =>
+    fs.existsSync(p) && fs.statSync(p).isDirectory()
+      ? lintDirectory(p, config, options)
+      : [lintFile(p, config, options)]
+  );
+}
+
+/**
+ * git にステージされた内容（作業ツリーではなくインデックスの中身）をlintする。
+ * 自動修正はステージとずれるので対応しない。
+ */
+function lintStaged(config = {}, cwd = process.cwd()) {
+  const isIgnored = createIgnoreMatcher(config);
+  return getStagedFiles(cwd)
+    .filter((f) => hasLintableExtension(f.path, config) && !isIgnored(f.path))
+    .map((f) => {
+      const display = path.relative(cwd, f.path);
+      return lintSource(readStagedFile(f), display, config);
+    });
+}
+
 module.exports = {
   lintFile,
   lintDirectory,
+  lintPaths,
+  lintStaged,
   lintSource,
   resolveRule,
 };

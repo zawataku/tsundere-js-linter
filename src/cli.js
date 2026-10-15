@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
-const { lintFile, lintDirectory } = require("./linter");
+const { lintPaths, lintStaged } = require("./linter");
 const { FORMATTERS } = require("./formatter");
 const { loadConfig, setRuleOption, ConfigError } = require("./config");
+const { installHook, GitError } = require("./git");
 
 const VERSION = "1.0.0";
 
@@ -14,13 +15,20 @@ const BANNER = `
   わけじゃないんだからね！
 `;
 
+function fail(message) {
+  console.error(`💢 ${message}`);
+  process.exit(2);
+}
+
 function parseArgs(argv) {
   const args = {
-    path: null,
+    paths: [],
     format: "terminal",
     maxLineLength: null,
     config: null,
     fix: false,
+    staged: false,
+    installHook: false,
     noBanner: false,
     version: false,
     help: false,
@@ -34,20 +42,16 @@ function parseArgs(argv) {
     } else if (arg === "--format" || arg === "-f") {
       i++;
       if (!(argv[i] in FORMATTERS)) {
-        console.error(
-          `💢 '${argv[i]}' なんて出力形式知らないわよ！ ${Object.keys(FORMATTERS).join(" / ")} から選びなさい`
+        fail(
+          `'${argv[i]}' なんて出力形式知らないわよ！ ${Object.keys(FORMATTERS).join(" / ")} から選びなさい`
         );
-        process.exit(2);
       }
       args.format = argv[i];
     } else if (arg === "--max-line-length") {
       i++;
       const value = Number(argv[i]);
       if (!Number.isInteger(value) || value <= 0) {
-        console.error(
-          `💢 --max-line-length には正の整数を指定しなさいよ！ ('${argv[i]}' って何？)`
-        );
-        process.exit(2);
+        fail(`--max-line-length には正の整数を指定しなさいよ！ ('${argv[i]}' って何？)`);
       }
       args.maxLineLength = value;
     } else if (arg === "--config" || arg === "-c") {
@@ -55,6 +59,10 @@ function parseArgs(argv) {
       args.config = argv[i];
     } else if (arg === "--fix") {
       args.fix = true;
+    } else if (arg === "--staged") {
+      args.staged = true;
+    } else if (arg === "--install-hook") {
+      args.installHook = true;
     } else if (arg === "--no-banner") {
       args.noBanner = true;
     } else if (arg === "--version" || arg === "-v") {
@@ -62,7 +70,9 @@ function parseArgs(argv) {
     } else if (arg === "--help" || arg === "-h") {
       args.help = true;
     } else if (!arg.startsWith("-")) {
-      args.path = arg;
+      args.paths.push(arg);
+    } else {
+      fail(`'${arg}' なんてオプション知らないわよ！ --help を見なさい`);
     }
     i++;
   }
@@ -71,10 +81,12 @@ function parseArgs(argv) {
 
 function showHelp() {
   console.log(`
-使い方: tsundere-lint-js <path> [options]
+使い方: tsundere-lint-js <path...> [options]
+        tsundere-lint-js --staged [options]
+        tsundere-lint-js --install-hook
 
 引数:
-  path                         lintするファイルまたはディレクトリ
+  path...                      lintするファイルまたはディレクトリ（複数可）
 
 オプション:
   --format, -f <name>          出力形式 terminal / json / github（デフォルト: terminal）
@@ -82,10 +94,27 @@ function showHelp() {
   --config, -c <path>          設定ファイルを指定（デフォルト: .tsundererc.json を探す）
   --max-line-length <number>   最大行長（設定ファイルより優先）
   --fix                        直せる指摘を自動修正してファイルを書き換える
+  --staged                     git にステージされた内容だけをlintする
+  --install-hook               .git/hooks/pre-commit に --staged で動くフックを作る
   --no-banner                  バナーを非表示
   --version, -v                バージョン表示
   --help, -h                   ヘルプ表示
 `);
+}
+
+function runInstallHook() {
+  try {
+    const { file, updated } = installHook();
+    console.log(
+      updated
+        ? `💝 フックを更新しておいたわ: ${file}`
+        : `💝 し、仕方ないからフックを入れてあげたわよ: ${file}\n   これからはコミットのたびに見張っててあげる。…べ、別に嬉しくないんだからね！`
+    );
+    process.exit(0);
+  } catch (e) {
+    if (e instanceof GitError) fail(e.message);
+    throw e;
+  }
 }
 
 function main() {
@@ -96,9 +125,18 @@ function main() {
     process.exit(0);
   }
 
-  if (args.help || !args.path) {
+  if (args.installHook) runInstallHook();
+
+  if (args.help || (args.paths.length === 0 && !args.staged)) {
     showHelp();
     process.exit(args.help ? 0 : 1);
+  }
+
+  if (args.staged && args.paths.length > 0) {
+    fail("--staged とパスは一緒に指定できないわよ！どっちかにしなさい");
+  }
+  if (args.staged && args.fix) {
+    fail("--staged と --fix は一緒に使えないわよ！ステージした内容とずれちゃうでしょ");
   }
 
   let config;
@@ -106,30 +144,35 @@ function main() {
     config = loadConfig({ configPath: args.config });
   } catch (e) {
     if (!(e instanceof ConfigError)) throw e;
-    console.error(`💢 設定ファイルがおかしいわよ！\n   ${e.message}`);
-    process.exit(2);
+    fail(`設定ファイルがおかしいわよ！\n   ${e.message}`);
   }
   if (args.maxLineLength !== null) {
     setRuleOption(config, "T002", "max", args.maxLineLength);
+  }
+
+  const missing = args.paths.find((p) => !fs.existsSync(p));
+  if (missing) {
+    fail(`'${missing}' が見つからないわ！パスを確認しなさい！`);
   }
 
   if (args.format === "terminal" && !args.noBanner) {
     console.log(BANNER);
   }
 
-  const target = args.path;
-  const options = { fix: args.fix };
   let results;
-
-  if (fs.existsSync(target) && fs.statSync(target).isFile()) {
-    results = [lintFile(target, config, options)];
-  } else if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-    results = lintDirectory(target, config, options);
+  if (args.staged) {
+    try {
+      results = lintStaged(config);
+    } catch (e) {
+      if (e instanceof GitError) fail(e.message);
+      throw e;
+    }
+    if (results.length === 0 && args.format === "terminal") {
+      console.log("💭 lintするステージ済みファイルがないじゃない。…別にいいけど。");
+      process.exit(0);
+    }
   } else {
-    console.error(
-      `💢 '${target}' が見つからないわ！パスを確認しなさい！`
-    );
-    process.exit(2);
+    results = lintPaths(args.paths, config, { fix: args.fix });
   }
 
   console.log(FORMATTERS[args.format](results));

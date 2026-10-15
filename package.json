@@ -8,7 +8,7 @@
   },
   "scripts": {
     "lint": "node src/cli.js examples/",
-    "test": "node --test tests/linter.test.js tests/config.test.js"
+    "test": "node --test tests/linter.test.js tests/config.test.js tests/git.test.js"
   },
   "keywords": [
     "linter",
