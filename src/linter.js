@@ -1,8 +1,12 @@
 const fs = require("fs");
 const path = require("path");
-const acorn = require("acorn");
 const personality = require("./personality");
-const rules = require("./rules");
+const { parse, walk, base } = require("./ast");
+const { rules } = require("./rules");
+const { createIgnoreMatcher, DEFAULT_EXTENSIONS } = require("./config");
+const { parseDirectives, applyDirectives } = require("./directives");
+const { applyFixes } = require("./fixer");
+const { getStagedFiles, readStagedFile } = require("./git");
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -14,44 +18,30 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-function lintSource(source, filepath) {
-  const sourceLines = source.split("\n");
-  let ast;
-  try {
-    ast = acorn.parse(source, {
-      ecmaVersion: "latest",
-      sourceType: "module",
-      locations: true,
-    });
-  } catch (e) {
-    return [
-      {
-        filepath,
-        line: e.loc ? e.loc.line : 0,
-        col: e.loc ? e.loc.column : 0,
-        severity: "error",
-        rule: "T000",
-        message: `SyntaxErrorって…コード動かしてみたことないの!? → ${e.message}`,
-        tsundere: "",
-      },
-    ];
+/**
+ * 設定からルールの重要度とオプションを決める。無効なら null。
+ * 設定値は "off" / 重要度の文字列 / { severity, ...options } のどれか。
+ */
+function resolveRule(rule, config) {
+  const setting = config.rules ? config.rules[rule.id] : undefined;
+  const settings = {
+    severity: rule.severity,
+    options: { ...rule.defaultOptions },
+  };
+  if (setting === undefined) return settings;
+  if (setting === "off") return null;
+  if (typeof setting === "string") {
+    settings.severity = setting;
+    return settings;
   }
+  const { severity, ...options } = setting;
+  if (severity === "off") return null;
+  if (severity) settings.severity = severity;
+  Object.assign(settings.options, options);
+  return settings;
+}
 
-  const issues = [
-    ...rules.checkUnusedImports(ast, sourceLines, filepath),
-    ...rules.checkLineLength(sourceLines, filepath),
-    ...rules.checkMissingJSDoc(ast, source, filepath),
-    ...rules.checkTodoFixme(sourceLines, filepath),
-    ...rules.checkEmptyCatch(ast, filepath),
-    ...rules.checkLooseEquality(ast, filepath),
-    ...rules.checkConsoleLog(ast, filepath),
-    ...rules.checkMagicNumbers(ast, filepath),
-    ...rules.checkLongFunctions(ast, filepath),
-    ...rules.checkNestingDepth(ast, filepath),
-  ];
-
-  issues.sort((a, b) => a.line - b.line);
-
+function withTsundere(issues) {
   for (const issue of issues) {
     issue.tsundere = personality.formatIssue(
       issue.severity,
@@ -59,35 +49,140 @@ function lintSource(source, filepath) {
       issue.message
     );
   }
-
   return issues;
 }
 
-function lintFile(filepath) {
-  const resolved = path.resolve(filepath);
-  if (!fs.existsSync(resolved)) {
-    return [
+function fatalResult(filepath, message, loc = {}) {
+  return {
+    filepath,
+    issues: withTsundere([
       {
         filepath,
-        line: 0,
-        col: 0,
+        line: loc.line || 0,
+        col: loc.column || 0,
         severity: "error",
         rule: "T000",
-        message: `ファイル '${filepath}' が見つからないんだけど？ちゃんとパス確認しなさいよ！`,
-        tsundere: "",
+        message,
       },
-    ];
-  }
-
-  if (path.extname(resolved) !== ".js") return [];
-
-  const source = fs.readFileSync(resolved, "utf-8");
-  return lintSource(source, filepath);
+    ]),
+  };
 }
 
-function lintDirectory(dirpath, recursive = true) {
-  const allIssues = [];
+function runRule(rule, settings, shared) {
+  const issues = [];
+  const context = {
+    ...shared,
+    options: settings.options,
+    report({ node, loc, message, fix }) {
+      const start = node ? node.loc.start : loc;
+      const issue = {
+        filepath: shared.filepath,
+        line: start.line,
+        col: start.column,
+        severity: settings.severity,
+        rule: rule.id,
+        message,
+      };
+      if (fix) issue.fix = fix;
+      issues.push(issue);
+    },
+  };
+  rule.check(context);
+  return issues;
+}
+
+const MAX_FIX_PASSES = 10;
+
+/**
+ * ソース文字列をlintする。options.fix が true なら自動修正を繰り返し適用し、
+ * 修正後のソースを output、適用した数を fixed に入れて返す。
+ * @returns {{ filepath: string, issues: object[], suppressed: object[], fixed?: number, output?: string }}
+ */
+function lintSource(source, filepath, config = {}, options = {}) {
+  if (!options.fix) return lintOnce(source, filepath, config);
+
+  let output = source;
+  let fixed = 0;
+  for (let pass = 0; pass < MAX_FIX_PASSES; pass++) {
+    const result = lintOnce(output, filepath, config);
+    const fixResult = applyFixes(output, result.issues);
+    if (fixResult.applied === 0) break;
+    output = fixResult.output;
+    fixed += fixResult.applied;
+  }
+  return { ...lintOnce(output, filepath, config), fixed, output };
+}
+
+function lintOnce(source, filepath, config) {
+  let parsed;
+  try {
+    parsed = parse(source, filepath);
+  } catch (e) {
+    return fatalResult(
+      filepath,
+      `SyntaxErrorって…コード動かしてみたことないの!? → ${e.message}`,
+      e.loc
+    );
+  }
+
+  const { ast, comments } = parsed;
+  const shared = {
+    filepath,
+    source,
+    sourceLines: source.split("\n"),
+    ast,
+    comments,
+    walkSimple: (visitors) => walk.simple(ast, visitors, base),
+    walkAncestor: (visitors) => walk.ancestor(ast, visitors, base),
+  };
+
+  const directives = parseDirectives(comments, filepath);
+  const issues = [...directives.problems];
+  for (const rule of rules) {
+    const settings = resolveRule(rule, config);
+    if (settings) issues.push(...runRule(rule, settings, shared));
+  }
+
+  issues.sort((a, b) => a.line - b.line || a.col - b.col);
+  const { kept, suppressed } = applyDirectives(issues, directives);
+  return { filepath, issues: withTsundere(kept), suppressed };
+}
+
+function hasLintableExtension(filepath, config) {
+  const extensions = config.extensions || DEFAULT_EXTENSIONS;
+  return extensions.includes(path.extname(filepath));
+}
+
+function lintFile(filepath, config = {}, options = {}) {
+  if (createIgnoreMatcher(config)(filepath)) {
+    return { filepath, issues: [], ignored: true };
+  }
+  return lintFileUnchecked(filepath, config, options);
+}
+
+function lintFileUnchecked(filepath, config, options) {
+  const resolved = path.resolve(filepath);
+  if (!fs.existsSync(resolved)) {
+    return fatalResult(
+      filepath,
+      `ファイル '${filepath}' が見つからないんだけど？ちゃんとパス確認しなさいよ！`
+    );
+  }
+
+  if (!hasLintableExtension(resolved, config)) return { filepath, issues: [] };
+
+  const source = fs.readFileSync(resolved, "utf-8");
+  const result = lintSource(source, filepath, config, options);
+  if (result.output !== undefined && result.output !== source) {
+    fs.writeFileSync(resolved, result.output);
+  }
+  return result;
+}
+
+function lintDirectory(dirpath, config = {}, options = {}) {
+  const results = [];
   const resolved = path.resolve(dirpath);
+  const isIgnored = createIgnoreMatcher(config);
 
   function walkDir(dir) {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -96,17 +191,48 @@ function lintDirectory(dirpath, recursive = true) {
       if (SKIP_DIRS.has(entry.name)) continue;
 
       const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory() && recursive) {
+      if (isIgnored(fullPath)) continue;
+      if (entry.isDirectory()) {
         walkDir(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(".js")) {
+      } else if (entry.isFile() && hasLintableExtension(entry.name, config)) {
         const relPath = path.relative(process.cwd(), fullPath);
-        allIssues.push(...lintFile(relPath));
+        results.push(lintFileUnchecked(relPath, config, options));
       }
     }
   }
 
   walkDir(resolved);
-  return allIssues;
+  return results;
 }
 
-module.exports = { lintFile, lintDirectory, lintSource };
+/** ファイルとディレクトリが混ざったパスの一覧をlintする */
+function lintPaths(paths, config = {}, options = {}) {
+  return paths.flatMap((p) =>
+    fs.existsSync(p) && fs.statSync(p).isDirectory()
+      ? lintDirectory(p, config, options)
+      : [lintFile(p, config, options)]
+  );
+}
+
+/**
+ * git にステージされた内容（作業ツリーではなくインデックスの中身）をlintする。
+ * 自動修正はステージとずれるので対応しない。
+ */
+function lintStaged(config = {}, cwd = process.cwd()) {
+  const isIgnored = createIgnoreMatcher(config);
+  return getStagedFiles(cwd)
+    .filter((f) => hasLintableExtension(f.path, config) && !isIgnored(f.path))
+    .map((f) => {
+      const display = path.relative(cwd, f.path);
+      return lintSource(readStagedFile(f), display, config);
+    });
+}
+
+module.exports = {
+  lintFile,
+  lintDirectory,
+  lintPaths,
+  lintStaged,
+  lintSource,
+  resolveRule,
+};

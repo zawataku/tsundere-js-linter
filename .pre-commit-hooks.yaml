@@ -1,0 +1,7 @@
+# pre-commit (https://pre-commit.com) 用のフック定義
+- id: tsundere-js-linter
+  name: tsundere-js-linter
+  description: べ、別にあんたのコミットをチェックしたいわけじゃないんだからね！
+  entry: tsundere-lint-js --no-banner
+  language: node
+  types_or: [javascript, jsx]
